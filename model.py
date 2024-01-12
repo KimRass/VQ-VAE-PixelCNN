@@ -8,84 +8,58 @@ from torch.nn import functional as F
 from einops import rearrange
 
 
-class ConvBlock(nn.Module):
-    def __init__(self, channels, out_channels, stride=2, activ=True, transposed=False):
-        super().__init__()
-
-        self.activ = activ
-
-        if transposed:
-            self.conv = nn.ConvTranspose2d(
-                channels, out_channels, kernel_size=3, stride=stride, padding=1, output_padding=1,
-            )
-        else:
-            self.conv = nn.Conv2d(
-                channels, out_channels, kernel_size=3, stride=stride, padding=1, bias=False,
-            )
-        self.norm = nn.BatchNorm2d(out_channels)
-        if activ:
-            self.leaky_relu = nn.LeakyReLU(0.01)
-
-    def forward(self, x):
-        x = self.conv(x)
-        x = self.norm(x)
-        if self.activ:
-            x = self.leaky_relu(x)
-        return x
-
-
 class ResBlock(nn.Module):
-    def __init__(self, channels):
+    def __init__(self, dim):
         super().__init__()
 
-        self.block = nn.Sequential(
+        self.layers = nn.Sequential(
             nn.ReLU(),
-            nn.Conv2d(channels, channels, 3, 1, 1),
-            nn.BatchNorm2d(channels),
+            nn.Conv2d(dim, dim, kernel_size=3, stride=1, padding=1),
+            nn.BatchNorm2d(dim),
             nn.ReLU(),
-            nn.Conv2d(channels, channels, 1),
-            nn.BatchNorm2d(channels)
+            nn.Conv2d(dim, dim, kernel_size=1),
+            nn.BatchNorm2d(dim)
         )
 
     def forward(self, x):
-        return x + self.block(x)
+        return x + self.layers(x)
 
 
 class Encoder(nn.Module):
-    def __init__(self, channels, embed_dim):
+    def __init__(self, input_dim, embed_dim):
         super().__init__()
 
-        self.block = nn.Sequential(
-            nn.Conv2d(channels, embed_dim, 4, 2, 1),
+        self.layers = nn.Sequential(
+            nn.Conv2d(input_dim, embed_dim, kernel_size=4, stride=2, padding=1),
             nn.BatchNorm2d(embed_dim),
             nn.ReLU(),
-            nn.Conv2d(embed_dim, embed_dim, 4, 2, 1),
+            nn.Conv2d(embed_dim, embed_dim, kernel_size=4, stride=2, padding=1),
             ResBlock(embed_dim),
             ResBlock(embed_dim),
         )
 
     def forward(self, x):
         # "The model takes an input $x$, that is passed through an encoder producing output $z_{e}(x)$.
-        return self.block(x) # "$z_{e}(x)$"
+        return self.layers(x) # "$z_{e}(x)$"
 
 
 class Decoder(nn.Module):
-    def __init__(self, channels, embed_dim):
+    def __init__(self, input_dim, embed_dim):
         super().__init__()
 
-        self.block = nn.Sequential(
+        self.layers = nn.Sequential(
             ResBlock(embed_dim),
             ResBlock(embed_dim),
-            nn.ReLU(True),
-            nn.ConvTranspose2d(embed_dim, embed_dim, 4, 2, 1),
+            nn.ReLU(),
+            nn.ConvTranspose2d(embed_dim, embed_dim, kernel_size=4, stride=2, padding=1),
             nn.BatchNorm2d(embed_dim),
-            nn.ReLU(True),
-            nn.ConvTranspose2d(embed_dim, channels, 4, 2, 1),
+            nn.ReLU(),
+            nn.ConvTranspose2d(embed_dim, input_dim, kernel_size=4, stride=2, padding=1),
             nn.Tanh()
         )
 
     def forward(self, x):
-        return self.block(x)
+        return self.layers(x)
 
 
 class VectorQuantizer(nn.Module):
@@ -97,36 +71,39 @@ class VectorQuantizer(nn.Module):
         """
         super().__init__()
 
-        # n_embeds = 4
-        # embed_dim = 8
         self.embed_space = nn.Embedding(n_embeds, embed_dim) # "$e \in \mathbb{R}^{K \times D}$"
+        self.embed_space.weight.data.uniform_(-1 / n_embeds, 1 / n_embeds)
 
     def forward(self, x): # (B, `embed_dim`, H, W)
+        # n_embeds = 30
+        # embed_dim = 128
+        # embed_space = nn.Embedding(n_embeds, embed_dim)
         # x = torch.randn(2, embed_dim, 16, 16)
-        # x.shape, embed_space.weight.shape
 
         b, _, h, w = x.shape
         x = rearrange(x, pattern="b c h w -> (b h w) c")
-        dist_square = ((x.unsqueeze(1) - self.embed_space.weight.unsqueeze(0)) ** 2).sum(dim=2)
-        # "The discrete latent variables $z$ are then calculated by a nearest neighbour look-up using the shared embedding space $e$.
-        min_dist_idx = torch.argmin(dist_square, dim=1)
-        post_cat_dist = min_dist_idx.view(b, h, w)
-        
+        sq_dist = ((x.unsqueeze(1) - self.embed_space.weight.unsqueeze(0)) ** 2).sum(dim=2)
+        # "The discrete latent variables $z$ are then calculated by a nearest neighbour look-up
+        # using the shared embedding space $e$.
+        post_cat_dist = torch.argmin(sq_dist, dim=1)
         # "The input to the decoder is the corresponding embedding vector $e_{k}$."
-        x = self.embed_space(post_cat_dist) # "$z_{q}(x)$"
-        x = x.view(b, -1, h, w)
+        x = torch.index_select(input=self.embed_space.weight, dim=0, index=post_cat_dist)
+        x = rearrange(x, pattern="(b h w) c -> b c h w", b=b, h=h, w=w)
         return x
+        # post_cat_dist = min_dist_idx.view(b, h, w)
+        # x = self.embed_space(post_cat_dist) # "$z_{q}(x)$", (B, H, w, `embed_dim`)
+        # x = x.permute(0, 3, 1, 2) # (B, `embed_dim`, H, W)
 
 
 class VQVAE(nn.Module):
-    def __init__(self, channels, n_embeds, embed_dim):
+    def __init__(self, input_dim, n_embeds, embed_dim):
         super().__init__()
 
         self.embed_dim = embed_dim
 
-        self.enc = Encoder(channels=channels, embed_dim=embed_dim)
+        self.enc = Encoder(input_dim=input_dim, embed_dim=embed_dim)
         self.vect_quant = VectorQuantizer(n_embeds=n_embeds, embed_dim=embed_dim)
-        self.dec = Decoder(channels=channels, embed_dim=embed_dim)
+        self.dec = Decoder(input_dim=input_dim, embed_dim=embed_dim)
 
     def encode(self, x):
         x = self.enc(x)
@@ -136,13 +113,7 @@ class VQVAE(nn.Module):
         x = self.dec(z)
         return x
 
-    def forward(self, x):
-        x = self.encode(x)
-        x = self.vect_quant(x)
-        x = self.decode(x)
-        return x
-
-    def reconstruct(self, ori_image):
+    def forward(self, ori_image):
         x = self.encode(ori_image)
         x = self.vect_quant(x)
         x = self.decode(x)
@@ -150,42 +121,33 @@ class VQVAE(nn.Module):
 
     def get_loss(self, ori_image, beta):
         x = self.encode(ori_image)
-        # tot_vq_loss = self.vect_quant.get_loss(x, beta=beta)
-        # return tot_vq_loss
-
-
-        # "To make sure the encoder commits to an embedding and its output does not grow, we add a commitment loss."
-        b, _, _, _ = x.shape
 
         quant = self.vect_quant(x)
-        # "The VQ objective uses the L2 error to move the embedding vectors ei towards the encoder outputs $z_{e}(x)$."
+        # "The VQ objective uses the L2 error to move the embedding vectors $e_{i}$
+        # towards the encoder outputs $z_{e}(x)$."
         # "$\beta \Vert z_{e}(x) - \text{sg}[e] \Vert^{2}_{2}$"
         vq_loss = F.mse_loss(quant.detach(), x, reduction="mean")
+        # "To make sure the encoder commits to an embedding and its output does not grow,
+        # we add a commitment loss."
         commit_loss = beta * F.mse_loss(quant, x.detach(), reduction="mean")
 
         recon_image = self.decode(quant)
-        # recon_loss = F.mse_loss(recon_image, ori_image, reduction="mean")
-        recon_loss = F.mse_loss(recon_image, ori_image, reduction="mean") * 1.2
+        recon_loss = F.mse_loss(recon_image, ori_image, reduction="mean")
         return recon_loss + vq_loss + commit_loss
-
-    # def sample(self, n_samples, device):
-    #     z = torch.randn(size=(n_samples, self.embed_dim), device=device)
-    #     quant = self.vect_quant(z)
-    #     x = self.decode(quant)
-    #     return x
+        # return recon_loss
 
 
 if __name__ == "__main__":
-    channels = 1
+    input_dim = 1
     img_size = 64
     embed_dim = 256
     # recon_weight = 0.1
     beta = 3
     device = torch.device("cpu")
 
-    ori_image = torch.randn(4, channels, img_size, img_size).to(device)
+    ori_image = torch.randn(4, input_dim, img_size, img_size).to(device)
     model = VQVAE(
-        channels=channels, n_embeds=32, embed_dim=embed_dim,
+        input_dim=input_dim, n_embeds=32, embed_dim=embed_dim,
     ).to(device)
     # encoded = model.encode(ori_image)
     # encoded.shape
