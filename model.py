@@ -2,6 +2,9 @@
     # https://github.com/AntixK/PyTorch-VAE/blob/master/models/vq_vae.py
     # https://github.com/praeclarumjj3/VQ-VAE-on-MNIST/blob/master/modules.py
 
+# "q(z = kjx) is deterministic, and by defining a simple uniform prior over z we obtain
+# a KL divergence constant and equal to logK."
+
 import torch
 from torch import nn
 from torch.nn import functional as F
@@ -74,25 +77,18 @@ class VectorQuantizer(nn.Module):
         self.embed_space = nn.Embedding(n_embeds, embed_dim) # "$e \in \mathbb{R}^{K \times D}$"
         self.embed_space.weight.data.uniform_(-1 / n_embeds, 1 / n_embeds)
 
-    def forward(self, x): # (B, `embed_dim`, H, W)
-        # n_embeds = 30
-        # embed_dim = 128
-        # embed_space = nn.Embedding(n_embeds, embed_dim)
-        # x = torch.randn(2, embed_dim, 16, 16)
-
-        b, _, h, w = x.shape
+    def forward(self, x): # (b, `embed_dim`, h, w)
+        ori_shape = x.shape
         x = rearrange(x, pattern="b c h w -> (b h w) c")
-        sq_dist = ((x.unsqueeze(1) - self.embed_space.weight.unsqueeze(0)) ** 2).sum(dim=2)
+        squared_dist = ((x.unsqueeze(1) - self.embed_space.weight.unsqueeze(0)) ** 2).sum(dim=2)
         # "The discrete latent variables $z$ are then calculated by a nearest neighbour look-up
         # using the shared embedding space $e$.
-        post_cat_dist = torch.argmin(sq_dist, dim=1)
+        argmin = torch.argmin(squared_dist, dim=1)
         # "The input to the decoder is the corresponding embedding vector $e_{k}$."
-        x = torch.index_select(input=self.embed_space.weight, dim=0, index=post_cat_dist)
-        x = rearrange(x, pattern="(b h w) c -> b c h w", b=b, h=h, w=w)
+        # x = torch.index_select(input=self.embed_space.weight, dim=0, index=argmin)
+        x = self.embed_space(argmin) # "$z_{q}(x)$", (b, h, w, `embed_dim`)
+        x = x.view(ori_shape) # (b, `embed_dim`, h, w)
         return x
-        # post_cat_dist = min_dist_idx.view(b, h, w)
-        # x = self.embed_space(post_cat_dist) # "$z_{q}(x)$", (B, H, w, `embed_dim`)
-        # x = x.permute(0, 3, 1, 2) # (B, `embed_dim`, H, W)
 
 
 class VQVAE(nn.Module):
@@ -114,27 +110,26 @@ class VQVAE(nn.Module):
         return x
 
     def forward(self, ori_image):
-        x = self.encode(ori_image)
-        x = self.vect_quant(x)
-        x = self.decode(x)
+        # "The model takes an input $x$, that is passed through an encoder producing output $z_{e}(x)$.
+        z_e = self.encode(ori_image) # "$z_{e}(x)$"
+        z_q = self.vect_quant(z_e)
+        x = self.decode(z_q)
         return x
 
-    def get_loss(self, ori_image, beta):
-        x = self.encode(ori_image)
-
-        quant = self.vect_quant(x)
-        # "The VQ objective uses the L2 error to move the embedding vectors $e_{i}$
+    def get_loss(self, ori_image, commit_weight=0.25):
+        z_e = self.encode(ori_image) # "$z_{e}(x)$"
+        z_q = self.vect_quant(z_e) # "$z_{q}(x)$"
+        # "The VQ objective uses the $l_{2}$ error to move the embedding vectors $e_{i}$
         # towards the encoder outputs $z_{e}(x)$."
-        # "$\beta \Vert z_{e}(x) - \text{sg}[e] \Vert^{2}_{2}$"
-        vq_loss = F.mse_loss(quant.detach(), x, reduction="mean")
+        # "$\Vert \text{sg}[z_{e}(x)] - e \Vert^{2}_{2}$"
+        vq_loss = F.mse_loss(z_e.detach(), z_q, reduction="mean")
         # "To make sure the encoder commits to an embedding and its output does not grow,
         # we add a commitment loss."
-        commit_loss = beta * F.mse_loss(quant, x.detach(), reduction="mean")
-
-        recon_image = self.decode(quant)
+        # "$\beta \Vert z_{e}(x) - \text{sg}[e] \Vert^{2}_{2}$"
+        commit_loss = commit_weight * F.mse_loss(z_e, z_q.detach(), reduction="mean")
+        recon_image = self.decode(z_q)
         recon_loss = F.mse_loss(recon_image, ori_image, reduction="mean")
         return recon_loss + vq_loss + commit_loss
-        # return recon_loss
 
 
 if __name__ == "__main__":
@@ -142,7 +137,6 @@ if __name__ == "__main__":
     img_size = 64
     embed_dim = 256
     # recon_weight = 0.1
-    beta = 3
     device = torch.device("cpu")
 
     ori_image = torch.randn(4, input_dim, img_size, img_size).to(device)
@@ -155,4 +149,4 @@ if __name__ == "__main__":
     # out = model(ori_image)
     # out.shape
 
-    loss = model.get_loss(ori_image, beta=beta)
+    loss = model.get_loss(ori_image, commit_weight=commit_weight)
