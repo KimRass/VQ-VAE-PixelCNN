@@ -11,17 +11,42 @@ from torch.nn import functional as F
 from einops import rearrange
 
 
-class ResBlock(nn.Module):
-    def __init__(self, dim):
+class ConvBlock(nn.Module):
+    def __init__(self, *args, transposed, activation="relu"):
         super().__init__()
 
+        self.activation = activation
+
+        if transposed:
+            self.conv = nn.ConvTranspose2d(*args, bias=False)
+        else:
+            self.conv = nn.Conv2d(*args, bias=False)
+        self.norm = nn.BatchNorm2d(self.conv.out_channels)
+
+    def forward(self, x):
+        x = self.conv(x)
+        x = self.norm(x)
+        if self.activation == "relu":
+            x = torch.relu(x)
+        elif self.activation == "tanh":
+            x = torch.tanh(x)
+        return x
+
+
+class ResBlock(nn.Module):
+    def __init__(self, hidden_dim):
+        super().__init__()
+
+        # "Implemented as ReLU, 3x3 conv, ReLU, 1x1 conv"
         self.layers = nn.Sequential(
-            nn.ReLU(),
-            nn.Conv2d(dim, dim, kernel_size=3, stride=1, padding=1),
-            nn.BatchNorm2d(dim),
-            nn.ReLU(),
-            nn.Conv2d(dim, dim, kernel_size=1),
-            nn.BatchNorm2d(dim)
+            # nn.ReLU(),
+            # nn.Conv2d(hidden_dim, hidden_dim, kernel_size=3, padding=1),
+            # nn.BatchNorm2d(hidden_dim),
+            # nn.ReLU(),
+            # nn.Conv2d(hidden_dim, hidden_dim, kernel_size=1),
+            # nn.BatchNorm2d(hidden_dim),
+            ConvBlock(hidden_dim, hidden_dim, 3, 1, 1, transposed=False),
+            ConvBlock(hidden_dim, hidden_dim, 1, 1, 0, transposed=False),
         )
 
     def forward(self, x):
@@ -29,16 +54,23 @@ class ResBlock(nn.Module):
 
 
 class Encoder(nn.Module):
-    def __init__(self, input_dim, embed_dim):
+    def __init__(self, channels, hidden_dim):
         super().__init__()
 
+        # "The encoder consists of 2 strided convolutional layers with stride 2 and window size 4 × 4,
+        # followed by two residual 3 × 3 blocks.
+        # "We use a field of 32 × 32 latents for ImageNet, or 8 × 8 × 10 for CIFAR10.
         self.layers = nn.Sequential(
-            nn.Conv2d(input_dim, embed_dim, kernel_size=4, stride=2, padding=1),
-            nn.BatchNorm2d(embed_dim),
-            nn.ReLU(),
-            nn.Conv2d(embed_dim, embed_dim, kernel_size=4, stride=2, padding=1),
-            ResBlock(embed_dim),
-            ResBlock(embed_dim),
+            # nn.Conv2d(channels, hidden_dim, kernel_size=4, stride=2, padding=1),
+            # nn.BatchNorm2d(hidden_dim),
+            # nn.ReLU(),
+            # nn.Conv2d(hidden_dim, hidden_dim, kernel_size=4, stride=2, padding=1),
+            # ResBlock(hidden_dim),
+            # ResBlock(hidden_dim),
+            ConvBlock(channels, hidden_dim, 4, 2, 1, transposed=False),
+            ConvBlock(hidden_dim, hidden_dim, 4, 2, 1, transposed=False),
+            ResBlock(hidden_dim),
+            ResBlock(hidden_dim),
         )
 
     def forward(self, x):
@@ -47,18 +79,24 @@ class Encoder(nn.Module):
 
 
 class Decoder(nn.Module):
-    def __init__(self, input_dim, embed_dim):
+    def __init__(self, channels, hidden_dim):
         super().__init__()
 
+        # The decoder similarly has two residual 3 × 3 blocks, followed by two transposed convolutions
+        # with stride 2 and window size 4 × 4.
         self.layers = nn.Sequential(
-            ResBlock(embed_dim),
-            ResBlock(embed_dim),
-            nn.ReLU(),
-            nn.ConvTranspose2d(embed_dim, embed_dim, kernel_size=4, stride=2, padding=1),
-            nn.BatchNorm2d(embed_dim),
-            nn.ReLU(),
-            nn.ConvTranspose2d(embed_dim, input_dim, kernel_size=4, stride=2, padding=1),
-            nn.Tanh()
+            # ResBlock(hidden_dim),
+            # ResBlock(hidden_dim),
+            # nn.ReLU(),
+            # nn.ConvTranspose2d(hidden_dim, hidden_dim, kernel_size=4, stride=2, padding=1),
+            # nn.BatchNorm2d(hidden_dim),
+            # nn.ReLU(),
+            # nn.ConvTranspose2d(hidden_dim, channels, kernel_size=4, stride=2, padding=1),
+            # nn.Tanh(),
+            ResBlock(hidden_dim),
+            ResBlock(hidden_dim),
+            ConvBlock(hidden_dim, hidden_dim, 4, 2, 1, transposed=True),
+            ConvBlock(hidden_dim, channels, 4, 2, 1, transposed=True, activation="tanh"),
         )
 
     def forward(self, x):
@@ -66,18 +104,13 @@ class Decoder(nn.Module):
 
 
 class VectorQuantizer(nn.Module):
-    def __init__(self, n_embeds, embed_dim):
-        """
-        Args:
-            n_embeds (int): "The size of the discrete latent space $K$".
-            embed_dim (int): "The dimensionality of each latent embedding vector $e_{i}$".
-        """
+    def __init__(self, n_embeds, hidden_dim):
         super().__init__()
 
-        self.embed_space = nn.Embedding(n_embeds, embed_dim) # "$e \in \mathbb{R}^{K \times D}$"
+        self.embed_space = nn.Embedding(n_embeds, hidden_dim) # "$e \in \mathbb{R}^{K \times D}$"
         self.embed_space.weight.data.uniform_(-1 / n_embeds, 1 / n_embeds)
 
-    def forward(self, x): # (b, `embed_dim`, h, w)
+    def forward(self, x): # (b, `hidden_dim`, h, w)
         ori_shape = x.shape
         x = rearrange(x, pattern="b c h w -> (b h w) c")
         squared_dist = ((x.unsqueeze(1) - self.embed_space.weight.unsqueeze(0)) ** 2).sum(dim=2)
@@ -86,20 +119,20 @@ class VectorQuantizer(nn.Module):
         argmin = torch.argmin(squared_dist, dim=1)
         # "The input to the decoder is the corresponding embedding vector $e_{k}$."
         # x = torch.index_select(input=self.embed_space.weight, dim=0, index=argmin)
-        x = self.embed_space(argmin) # "$z_{q}(x)$", (b, h, w, `embed_dim`)
-        x = x.view(ori_shape) # (b, `embed_dim`, h, w)
+        x = self.embed_space(argmin) # "$z_{q}(x)$", (b, h, w, `hidden_dim`)
+        x = x.view(ori_shape) # (b, `hidden_dim`, h, w)
         return x
 
 
 class VQVAE(nn.Module):
-    def __init__(self, input_dim, n_embeds, embed_dim):
+    def __init__(self, channels, n_embeds, hidden_dim):
         super().__init__()
 
-        self.embed_dim = embed_dim
+        self.hidden_dim = hidden_dim
 
-        self.enc = Encoder(input_dim=input_dim, embed_dim=embed_dim)
-        self.vect_quant = VectorQuantizer(n_embeds=n_embeds, embed_dim=embed_dim)
-        self.dec = Decoder(input_dim=input_dim, embed_dim=embed_dim)
+        self.enc = Encoder(channels=channels, hidden_dim=hidden_dim)
+        self.vect_quant = VectorQuantizer(n_embeds=n_embeds, hidden_dim=hidden_dim)
+        self.dec = Decoder(channels=channels, hidden_dim=hidden_dim)
 
     def encode(self, x):
         x = self.enc(x)
@@ -133,20 +166,14 @@ class VQVAE(nn.Module):
 
 
 if __name__ == "__main__":
-    input_dim = 1
-    img_size = 64
-    embed_dim = 256
-    # recon_weight = 0.1
-    device = torch.device("cpu")
+    img_size = 32
+    channels = 3
+    n_embeds = 512
+    hidden_dim = 256
 
-    ori_image = torch.randn(4, input_dim, img_size, img_size).to(device)
+    ori_image = torch.randn(4, channels, img_size, img_size)
     model = VQVAE(
-        input_dim=input_dim, n_embeds=32, embed_dim=embed_dim,
-    ).to(device)
-    # encoded = model.encode(ori_image)
-    # encoded.shape
-
-    # out = model(ori_image)
-    # out.shape
-
-    loss = model.get_loss(ori_image, commit_weight=commit_weight)
+        channels=channels, n_embeds=32, hidden_dim=hidden_dim,
+    )
+    pred = model(ori_image)
+    pred.shape

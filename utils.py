@@ -54,10 +54,9 @@ def to_pil(img):
         return img
 
 
-def save_image(image, path):
-    path = Path(path)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    to_pil(image).save(str(path), quality=100)
+def save_image(image, save_path):
+    Path(save_path).parent.mkdir(parents=True, exist_ok=True)
+    to_pil(image).save(str(save_path), quality=100)
 
 
 def plt_to_pil(fig):

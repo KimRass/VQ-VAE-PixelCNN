@@ -1,17 +1,11 @@
 from torchvision.datasets import FashionMNIST
 import torchvision.transforms as T
-from torch.utils.data import DataLoader, random_split
+from torch.utils.data import DataLoader, Subset
+from sklearn.model_selection import train_test_split
+import numpy as np
 
 
-def get_dls(data_dir, batch_size, n_cpus, val_ratio=0.2):
-    transformer = T.Compose(
-        # [T.Pad(padding=2), T.ToTensor(), T.Normalize(mean=0.5, std=0.5)]
-        [T.ToTensor(), T.Normalize(mean=0.5, std=0.5)]
-    )
-    train_val_ds = FashionMNIST(root=data_dir, train=True, download=True, transform=transformer)
-    train_ds, val_ds = random_split(train_val_ds, lengths=(1 - val_ratio, val_ratio))
-    test_ds = FashionMNIST(root=data_dir, train=False, download=True, transform=transformer)
-
+def dses_to_dls(train_ds, val_ds, test_ds, batch_size, n_cpus):
     train_dl = DataLoader(
         train_ds,
         batch_size=batch_size,
@@ -42,5 +36,19 @@ def get_dls(data_dir, batch_size, n_cpus, val_ratio=0.2):
     return train_dl, val_dl, test_dl
 
 
-if __name__ == "__main__":
-    data_dir = "/Users/jongbeomkim/Documents/datasets"
+def get_dls(data_dir, batch_size, n_cpus, val_ratio, seed):
+    transformer = T.Compose(
+        [T.ToTensor(), T.Normalize(mean=0.5, std=0.5)]
+    )
+    train_val_ds = FashionMNIST(root=data_dir, train=True, download=True, transform=transformer)
+    train_idx, val_idx = train_test_split(
+        np.arange(len(train_val_ds)),
+        test_size=val_ratio,
+        random_state=seed,
+        shuffle=True,
+        stratify=[sample[1] for sample in train_val_ds],
+    )
+    train_ds = Subset(train_val_ds, train_idx)
+    val_ds = Subset(train_val_ds, val_idx)
+    test_ds = FashionMNIST(root=data_dir, train=False, download=True, transform=transformer)
+    return dses_to_dls(train_ds, val_ds, test_ds, batch_size=batch_size, n_cpus=n_cpus)
