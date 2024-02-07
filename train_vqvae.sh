@@ -4,7 +4,7 @@ source ../venv/cv/bin/activate
 source set_pythonpath.sh
 
 # # For Fashion MNIST
-# python3 train.py\
+# python3 train_vqvae.py\
 #     --dataset="fashion_mnist"\
 #     --data_dir="/Users/jongbeomkim/Documents/datasets/"\
 #     --save_dir="/Users/jongbeomkim/Documents/vqvae/fashion_mnist/experiment"\
@@ -15,7 +15,7 @@ source set_pythonpath.sh
 #     --batch_size=128\
 
 # For CIFAR10
-python3 train.py\
+python3 train_vqvae.py\
     --dataset="cifar10"\
     --data_dir="/Users/jongbeomkim/Documents/datasets/cifar-10-batches-py"\
     --save_dir="/Users/jongbeomkim/Documents/vqvae/cifar10/"\
@@ -24,4 +24,3 @@ python3 train.py\
     --hidden_dim=256\
     --n_epochs=2000\
     --batch_size=128\
-    # --resume_from="/Users/jongbeomkim/Documents/vqvae/cifar10/model6/epoch=10-train_loss=0.121-val_loss=0.120.pth"\

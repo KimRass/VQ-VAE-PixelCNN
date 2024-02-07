@@ -1,9 +1,3 @@
-```python
-z_q = z_e + (z_q - z_e).detach()
-```
-- 사용 시
-```bash
-[ DEVICE: mps ][ N_CPUS: 7 ]
 [ 1/50 ][ Train loss: 1.371 ][ Val loss: 1.292 | 1.292 ]                   
 [ 2/50 ][ Train loss: 1.260 ][ Val loss: 1.232 | 1.232 ]                   
 [ 3/50 ][ Train loss: 1.184 ][ Val loss: 1.180 | 1.180 ]                   
@@ -35,14 +29,4 @@ z_q = z_e + (z_q - z_e).detach()
 [ 29/50 ][ Train loss: 0.195 ][ Val loss: 0.192 | 0.191 ]                  
 [ 30/50 ][ Train loss: 0.192 ][ Val loss: 0.209 | 0.191 ]                  
 [ 31/50 ][ Train loss: 0.189 ][ Val loss: 0.188 | 0.188 ]                  
-[ 32/50 ][ Train loss: 0.186 ][ Val loss: 0.198 | 0.188 ]      
-```
-- 미사용 시
-```bash
-[ DEVICE: mps ][ N_CPUS: 7 ]
-[ 1/50 ][ Train loss: 1.378 ][ Val loss: 1.265 | Best: 1.265 ]             
-[ 2/50 ][ Train loss: 1.132 ][ Val loss: 1.042 | Best: 1.042 ]             
-[ 3/50 ][ Train loss: 0.918 ][ Val loss: 0.814 | Best: 0.814 ]             
-[ 4/50 ][ Train loss: 0.718 ][ Val loss: 0.641 | Best: 0.641 ]             
-[ 5/50 ][ Train loss: 0.565 ][ Val loss: 0.498 | Best: 0.498 ]
-```
+[ 32/50 ][ Train loss: 0.186 ][ Val loss: 0.198 | 0.188 ]

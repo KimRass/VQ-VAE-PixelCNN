@@ -45,9 +45,7 @@ def get_args(to_upperse=True):
 
 def train_single_step(ori_image, model, optim, commit_weight, device):
     ori_image = ori_image.to(device)
-    loss = model.get_loss(
-        ori_image, commit_weight=commit_weight,
-    )
+    loss = model.get_loss(ori_image, commit_weight=commit_weight)
 
     optim.zero_grad()
     loss.backward()
@@ -79,6 +77,7 @@ def train(
     init_epoch, n_epochs, train_dl, val_dl, test_dl, model, optim, save_dir, commit_weight, device,
 ):
     test_ori_image, _ = next(iter(test_dl))
+    test_ori_image = test_ori_image.to(device)
     test_ori_grid = image_to_grid(test_ori_image, n_cols=int(train_dl.batch_size ** 0.5))
     save_image(test_ori_grid, save_path=Path(save_dir)/f"test_ori_image.jpg")
 
@@ -109,10 +108,10 @@ def train(
         log += f"[ Val loss: {val_loss:.3f} | Best: {best_val_loss:.3f} ]"
         print(log)
 
-        test_ori_image = test_ori_image.to(device)
-        recon_image = model(test_ori_image)
-        recon_grid = image_to_grid(recon_image, n_cols=int(train_dl.batch_size ** 0.5))
-        save_image(recon_grid, save_path=Path(save_dir)/f"epoch={epoch}-recon_image.jpg")
+        with torch.no_grad():
+            recon_image = model(test_ori_image.detach())
+            recon_grid = image_to_grid(recon_image, n_cols=int(train_dl.batch_size ** 0.5))
+            save_image(recon_grid, save_path=Path(save_dir)/f"epoch={epoch}-recon_image.jpg")
 
 
 def ckpt_path_to_init_epoch(ckpt_path):
