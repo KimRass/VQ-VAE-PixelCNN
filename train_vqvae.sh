@@ -22,5 +22,5 @@ python3 train_vqvae.py\
     --n_cpus=7\
     --n_embeds=128\
     --hidden_dim=256\
-    --n_epochs=2000\
+    --n_epochs=300\
     --batch_size=128\

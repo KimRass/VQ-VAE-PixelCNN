@@ -38,7 +38,7 @@ def dses_to_dls(train_ds, val_ds, test_ds, batch_size, n_cpus):
 
 def get_dls(data_dir, batch_size, n_cpus, val_ratio, seed):
     transformer = T.Compose(
-        [T.ToTensor(), T.Normalize(mean=0.5, std=0.5)]
+        [T.ToTensor(), T.Normalize(mean=0.5, std=0.5)],
     )
     train_val_ds = FashionMNIST(root=data_dir, train=True, download=True, transform=transformer)
     train_idx, val_idx = train_test_split(

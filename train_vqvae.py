@@ -45,7 +45,7 @@ def get_args(to_upperse=True):
 
 def train_single_step(ori_image, model, optim, commit_weight, device):
     ori_image = ori_image.to(device)
-    loss = model.get_loss(ori_image, commit_weight=commit_weight)
+    loss = model.get_vqvae_loss(ori_image, commit_weight=commit_weight)
 
     optim.zero_grad()
     loss.backward()
@@ -60,7 +60,7 @@ def validate(val_dl, model, commit_weight, device):
     cum_val_loss = 0
     for ori_image, _ in val_dl:
         ori_image = ori_image.to(device)
-        loss = model.get_loss(ori_image, commit_weight=commit_weight)
+        loss = model.get_vqvae_loss(ori_image, commit_weight=commit_weight)
         cum_val_loss += loss.item()
     val_loss = cum_val_loss / len(val_dl)
 

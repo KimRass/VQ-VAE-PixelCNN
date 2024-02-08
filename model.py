@@ -1,14 +1,13 @@
 # References:
-    # https://github.com/MishaLaskin/model/blob/master/models/quantizer.py
+    # https://github.com/MishaLaskin/vqvae/blob/master/models/quantizer.py
+    # https://keras.io/examples/generative/vq_vae/
 
 import torch
 from torch import nn
 from torch.nn import functional as F
-import torchvision.transforms.functional as TF
-from torchvision.utils import make_grid
 from einops import rearrange
 
-from utils import to_pil
+torch.set_printoptions(linewidth=70)
 
 
 class Encoder(nn.Module):
@@ -57,7 +56,8 @@ class VectorQuantizer(nn.Module):
         # "The discrete latent variables $z$ are then calculated by a nearest neighbour look-up
         # using the shared embedding space $e$.
         argmin = torch.argmin(squared_dist, dim=1) # (b * h * w,)
-        return argmin.view(b, h, w) # (b, h, w)
+        q = argmin.view(b, h, w) # (b, h, w)
+        return q
 
     def forward(self, x):
         q = self.vector_quantize(x) # (b, h, w)
@@ -99,14 +99,8 @@ class Decoder(nn.Module):
 # "When predicting the R channel for the current pixel xi, only the generated pixels left and above of xi can be used as context. When predicting the G channel, the value of the R channel can also be used as context in addition to the previously generated pixels. Likewise, for the B channel, the values of both the R and G channels can be used. To restrict connections in the network to these dependencies, we apply a mask to the in_imageto- state convolutions and to other purely convolutional layers in a PixelRNN."
 # "Mask A is applied only to the first convolutional layer in a PixelRNN and restricts the connections to those neighboring pixels and to those colors in the current pixels that have already been predicted."
 class MaskedConv(nn.Conv2d):
-    def __init__(self, *args, mask_type):
-        super().__init__(*args)
-
-        # if isinstance(kwargs["kernel_size"], int):
-        #     assert kwargs["kernel_size"] % 2 == 1, "The argument `kernel_size` must be divisible by 2"
-        # if isinstance(kwargs["kernel_size"], tuple):
-        #     for i in kwargs["kernel_size"]:
-        #         assert i % 2 == 1, "All of the elements of the argument `kernel_size` must be divisible by 2"
+    def __init__(self, *args, mask_type, **kwargs):
+        super().__init__(*args, **kwargs)
 
         self.mask = torch.zeros_like(self.weight)
         self.mask[..., : self.mask.shape[2] // 2, :] = 1
@@ -121,18 +115,26 @@ class ResBlock(nn.Module):
         super().__init__()
 
         self.layers1 = nn.Sequential(
-            MaskedConv(hidden_dim, hidden_dim // 2, 1, 1, 0, mask_type=mask_type),
-            nn.BatchNorm2d(hidden_dim // 2),
+            MaskedConv(
+                hidden_dim, hidden_dim // 2, 1, 1, 0, bias=False, mask_type=mask_type,
+            ),
+            # nn.Conv2d(hidden_dim, hidden_dim // 2, 1, 1, 0, bias=False),
+            # nn.BatchNorm2d(hidden_dim // 2),
             nn.ReLU(),
-            MaskedConv(hidden_dim // 2, hidden_dim // 2, 3, 1, 1, mask_type=mask_type),
-            nn.BatchNorm2d(hidden_dim // 2),
+            MaskedConv(
+                hidden_dim // 2, hidden_dim // 2, 3, 1, 1, bias=False, mask_type=mask_type,
+            ),
+            # nn.BatchNorm2d(hidden_dim // 2),
             nn.ReLU(),
-            MaskedConv(hidden_dim // 2, hidden_dim, 1, 1, 0, mask_type=mask_type),
-            nn.BatchNorm2d(hidden_dim),
+            MaskedConv(
+                hidden_dim // 2, hidden_dim, 1, 1, 0, bias=False, mask_type=mask_type,
+            ),
+            # nn.Conv2d(hidden_dim // 2, hidden_dim, 1, 1, 0, bias=False),
+            # nn.BatchNorm2d(hidden_dim),
             nn.ReLU(),
         )
         self.layers2 = nn.Sequential(
-            nn.BatchNorm2d(hidden_dim),
+            # nn.BatchNorm2d(hidden_dim),
             nn.ReLU(),
         )
 
@@ -143,70 +145,44 @@ class ResBlock(nn.Module):
 
 
 class PixelCNN(nn.Module):
-    def __init__(self, n_classes, hidden_dim=128, n_res_blocks=12):
+    def __init__(self, n_embeds, hidden_dim, n_res_blocks=2):
         super().__init__()
 
-        self.n_classes = n_classes
+        self.n_embeds = n_embeds
+        self.hidden_dim = hidden_dim
 
+        self.embed = nn.Embedding(n_embeds, hidden_dim)
         self.conv_block1 = nn.Sequential(
-            MaskedConv(1, hidden_dim, 7, 1, 3, mask_type="A"),
-            nn.BatchNorm2d(hidden_dim),
+            MaskedConv(hidden_dim, hidden_dim, 7, 1, 3, bias=False, mask_type="A"),
+            # nn.BatchNorm2d(hidden_dim),
             nn.ReLU(),
         )
         self.res_blocks = nn.Sequential(
-            *[ResBlock(hidden_dim=hidden_dim, mask_type="B") for _ in range(n_res_blocks)]
+            *[
+                ResBlock(hidden_dim=hidden_dim, mask_type="B")
+                for _ in range(n_res_blocks)
+            ]
         )
         self.conv_block2 = nn.Sequential(
-            MaskedConv(hidden_dim, hidden_dim, 1, 1, 0, mask_type="B"),
-            nn.BatchNorm2d(hidden_dim),
+            MaskedConv(hidden_dim, hidden_dim, 1, 1, 0, bias=False, mask_type="B"),
+            # nn.BatchNorm2d(hidden_dim),
             nn.ReLU(),
         )
-        self.conv_block3 = nn.Sequential(
-            MaskedConv(hidden_dim, n_classes, 1, 1, 0, mask_type="B"),
-            nn.BatchNorm2d(n_classes),
-            nn.ReLU(),
-        )
+        self.conv = MaskedConv(hidden_dim, n_embeds, 1, 1, 0, mask_type="B")
+        # self.conv = nn.Conv2d(hidden_dim, n_embeds, 1, 1, 0)
 
-    def forward(self, ori_image):
-        if ori_image.dtype == torch.int64:
-            x = ori_image / (self.n_classes - 1)
-            x = TF.normalize(x, mean=0.5, std=0.5)
+    def forward(self, x):
+        x = self.embed(x)
+        x = x.permute(0, 3, 1, 2)
         x = self.conv_block1(x)
         x = self.res_blocks(x)
         x = self.conv_block2(x)
-        x = self.conv_block3(x)
+        x = self.conv(x)
         return x
-
-    def get_loss(self, ori_image):
-        pred = self(ori_image)
-        loss = F.cross_entropy(
-            pred.view(-1, self.n_classes), ori_image.view(-1,), reduction="mean",
-        )
-        return loss
-
-    @staticmethod
-    def deterministically_sample(pred):
-        sample = torch.argmax(pred, dim=1)
-        return sample
-
-    @staticmethod
-    def stochastically_sample(pred, temp=1):
-        prob = F.softmax(pred, dim=1)
-        prob **= 1 / temp
-        prob /= torch.sum(prob, dim=1, keepdim=True)
-
-        sample = torch.multinomial(prob, num_samples=1)
-        return sample.view(-1, 3, 32, 32)
-
-    # def reconstruct(self, pred, n_cols):
-    #     sample = self.deterministically_sample(pred)
-    #     grid = make_grid(sample, nrow=n_cols, padding=2, pad_value=1)
-    #     array_grid = grid.permute(1, 2, 0).cpu().numpy().astype("uint8")
-    #     return to_pil(array_grid)
 
 
 class VQVAE(nn.Module):
-    def __init__(self, channels, n_embeds, hidden_dim):
+    def __init__(self, channels, n_embeds, hidden_dim, n_pixelcnn_res_blocks):
         super().__init__()
 
         self.hidden_dim = hidden_dim
@@ -215,7 +191,10 @@ class VQVAE(nn.Module):
         self.vect_quant = VectorQuantizer(n_embeds=n_embeds, hidden_dim=hidden_dim)
         self.dec = Decoder(channels=channels, hidden_dim=hidden_dim)
 
-        self.pixelcnn = PixelCNN(n_classes=n_embeds, hidden_dim=hidden_dim)
+        self.pixelcnn = PixelCNN(
+            n_embeds=n_embeds, hidden_dim=hidden_dim, n_res_blocks=n_pixelcnn_res_blocks,
+        )
+        self.ce = nn.CrossEntropyLoss(reduction="mean")
 
     def encode(self, x):
         x = self.enc(x)
@@ -225,19 +204,15 @@ class VQVAE(nn.Module):
         x = self.dec(z)
         return x
 
-    def get_categorical_distribution(self, ori_image):
-        z_e = self.encode(ori_image)
-        q = self.vect_quant.vector_quantize(z_e) # "$q(z \vert x)$"
-        return q[:, None, ...]
-
     def forward(self, ori_image):
-        # "The model takes an input $x$, that is passed through an encoder producing output $z_{e}(x)$.
+        # "The model takes an input $x$, that is passed through an encoder
+        # producing output $z_{e}(x)$.
         z_e = self.encode(ori_image) # "$z_{e}(x)$"
         z_q = self.vect_quant(z_e)
         x = self.decode(z_q)
         return x
 
-    def get_loss(self, ori_image, commit_weight=0.25):
+    def get_vqvae_loss(self, ori_image, commit_weight=0.25):
         z_e = self.encode(ori_image) # "$z_{e}(x)$"
         z_q = self.vect_quant(z_e) # "$z_{q}(x)$"
         # "The VQ objective uses the $l_{2}$ error to move the embedding vectors $e_{i}$
@@ -257,38 +232,107 @@ class VQVAE(nn.Module):
         recon_loss = F.mse_loss(recon_image, ori_image, reduction="mean")
         return recon_loss + vq_loss + commit_loss
 
-    def get_pixelcnn_loss(self, ori_image):
-        q = self.get_categorical_distribution(ori_image)
-        loss = self.pixelcnn.get_loss(q.detach())
-        return loss
+    def get_prior_q(self, ori_image):
+        z_e = self.encode(ori_image)
+        q = self.vect_quant.vector_quantize(z_e) # "$q(z \vert x)$"
+        return q
 
-    def reconstruct(self, ori_image):
-        q = self.get_categorical_distribution(ori_image)
-        q_pred = self.pixelcnn(q)
-        recon_q = torch.argmin(q_pred, dim=1)
-        x = self.vect_quant.embed_space(recon_q)
+    def get_pixelcnn_loss(self, ori_image):
+        with torch.no_grad():
+            q = self.get_prior_q(ori_image)
+        pred_q = self.pixelcnn(q.detach())
+        return self.ce(
+            rearrange(pred_q, pattern="b c h w -> (b h w) c"), q.view(-1,),
+        )
+
+    @staticmethod
+    def deterministically_sample(x):
+        return torch.argmax(x, dim=1)
+
+    @staticmethod
+    def stochastically_sample(x, temp=1):
+        b, c, h, w = x.shape
+        prob = F.softmax(x / temp, dim=1)
+        # print(prob[0, :, 0, 0])
+        sample = torch.multinomial(prob.view(-1, c), num_samples=1, replacement=True)
+        return sample.view(b, h, w)
+
+    def q_to_image(self, q):
+        x = self.vect_quant.embed_space(q)
         return self.decode(x.permute(0, 3, 1, 2))
+
+    def reconstruct(self, ori_image, temp=0):
+        with torch.no_grad():
+            q = self.get_prior_q(ori_image)
+        pred_q = self.pixelcnn(q.detach())
+        if temp == 0:
+            recon_q = self.deterministically_sample(pred_q)
+        elif temp > 0:
+            recon_q = self.stochastically_sample(pred_q)
+        return self.q_to_image(recon_q)
+
+    @torch.no_grad()
+    def sample_post_q(self, batch_size, q_size, device, temp=0):
+        sampled_q = torch.zeros(
+            size=(batch_size, q_size, q_size), dtype=torch.int64, device=device,
+        )
+        for row in range(q_size):
+            for col in range(q_size):
+                pred_q = self.pixelcnn(sampled_q.detach())
+                # print(torch.max(F.softmax(pred_q[..., row, col] / temp, dim=1), dim=1)[0])
+                # F.softmax(pred_q)
+                if temp == 0:
+                    recon_q = self.deterministically_sample(pred_q)
+                elif temp > 0:
+                    recon_q = self.stochastically_sample(pred_q)
+                sampled_q[:, row, col] = recon_q[:, row, col]
+        return sampled_q
+
+    def sample(self, batch_size, q_size, device, temp=0):
+        post_q = self.sample_post_q(
+            batch_size=batch_size, q_size=q_size, device=device, temp=temp,
+        )
+        return self.q_to_image(post_q)
 
 
 if __name__ == "__main__":
-    img_size = 32
-    channels = 3
-    n_embeds = 40
-    hidden_dim = 3
+    # img_size = 28
+    # channels = 1
+    # n_embeds = 128
+    # hidden_dim = 256
+    # DEVICE = torch.device("cpu")
+    # VQVAE_PARAMS = "/Users/jongbeomkim/Documents/vqvae/pixelcnn/fashion_mnist/only_masked_conv/epoch=4-val_loss=0.00008.pth"
 
-    ori_image = torch.randn(4, channels, img_size, img_size)
+    model = VQVAE(1, n_embeds, hidden_dim, 2).to(DEVICE)
+    state_dict = torch.load(VQVAE_PARAMS, map_location=DEVICE)
+    model.load_state_dict(state_dict)
 
-    model = VQVAE(channels=channels, n_embeds=n_embeds, hidden_dim=hidden_dim)
-    recon_image = model.reconstruct(ori_image)
-    recon_image.shape
+    sampled_image = model.sample(batch_size=1, q_size=7, device=DEVICE, temp=0.4)
+    sampled_grid = image_to_grid(sampled_image, n_cols=1)
+    sampled_grid.show()
 
-    loss = model.get_pixelcnn_loss(ori_image)
-    pred = model.pixelcnn(q)
-    recon_q = torch.argmin(pred, dim=1)
-    q
-    recon_q.shape, q.shape
-    pred.shape
-    model.pixelcnn.deterministically_sample(pred)
-    # q = model.get_categorical_distribution(ori_image)
-    # loss = model.get_loss(q)
-    # loss
+    # q = torch.tensor(
+    #     [[ 77,  38,  38,  41,  41,  41,  77],
+    #     [ 77,  38,  38,  15,  82,  15,  26],
+    #     [ 77,  38,  38,  16,  31,  51, 117],
+    #     [ 77,  38,  38,  15,  51,  51, 117],
+    #     [ 41,  28,  62,  62,  51,  51, 117],
+    #     [ 62,  51,  51,  51,  51,  51,  51],
+    #     [ 77,  99,  41,  41,  41,  41,  41]]
+    # )[None, ...]
+    # image = model.q_to_image(q)
+    # image_to_grid(image, n_cols=1).show()
+
+    # train_dl, val_dl, test_dl = get_dls(
+    #     data_dir="/Users/jongbeomkim/Documents/datasets",
+    #     batch_size=4,
+    #     n_cpus=1,
+    #     val_ratio=0.2,
+    #     seed=888,
+    # )
+    for ori_image, x in train_dl:
+        with torch.no_grad():
+            recon_image = model.reconstruct(ori_image)
+            recon_grid = image_to_grid(recon_image, n_cols=2)
+            recon_grid.show()
+            break
