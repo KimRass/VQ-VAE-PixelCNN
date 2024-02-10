@@ -12,7 +12,7 @@ python3 train_pixelcnn.py\
     --n_cpus=7\
     --n_embeds=128\
     --hidden_dim=256\
-    --n_epochs=5\
+    --n_epochs=30\
     --batch_size=128\
 
 # # For CIFAR10

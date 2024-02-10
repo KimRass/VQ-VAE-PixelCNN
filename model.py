@@ -6,6 +6,7 @@ import torch
 from torch import nn
 from torch.nn import functional as F
 from einops import rearrange
+from pathlib import Path
 
 torch.set_printoptions(linewidth=70)
 
@@ -212,6 +213,14 @@ class VQVAE(nn.Module):
         x = self.decode(z_q)
         return x
 
+    def save_model_params(self, save_path):
+        Path(save_path).parent.mkdir(parents=True, exist_ok=True)
+        torch.save(self.state_dict(), str(save_path))
+
+    def load_model_params(self, model_params, strict):
+        state_dict = torch.load(model_params, map_location=self.device)
+        self.load_state_dict(state_dict, strict=strict)
+
     def get_vqvae_loss(self, ori_image, commit_weight=0.25):
         z_e = self.encode(ori_image) # "$z_{e}(x)$"
         z_q = self.vect_quant(z_e) # "$z_{q}(x)$"
@@ -225,7 +234,7 @@ class VQVAE(nn.Module):
         # "$\beta \Vert z_{e}(x) - \text{sg}[e] \Vert^{2}_{2}$"
         # This term trains the encoder.
         commit_loss = commit_weight * F.mse_loss(z_e, z_q.detach(), reduction="mean")
-        z_q = z_e + (z_q - z_e).detach() # Preserve gradient??
+        z_q = z_e + (z_q - z_e).detach() # Straight-through estimator.(?)
 
         recon_image = self.decode(z_q)
         # This term trains the decoder.

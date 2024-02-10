@@ -1,0 +1,5 @@
+[ 1/5 ][ Train loss: 0.25592 ][ Val loss: 0.00158 | Best: 0.00158 ]
+[ 2/5 ][ Train loss: 0.00071 ][ Val loss: 0.00032 | Best: 0.00032 ]
+[ 3/5 ][ Train loss: 0.00021 ][ Val loss: 0.00013 | Best: 0.00013 ]
+[ 4/5 ][ Train loss: 0.00009 ][ Val loss: 0.00008 | Best: 0.00008 ]
+[ 5/5 ][ Train loss: 0.00006 ][ Val loss: 0.00005 | Best: 0.00005 ]

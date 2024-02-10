@@ -14,9 +14,10 @@ def get_args(to_upperse=True):
     parser = argparse.ArgumentParser()
 
     parser.add_argument("--dataset", type=str, required=True)
-    parser.add_argument("--vqvae_params", type=str, required=True)
     parser.add_argument("--data_dir", type=str, required=True)
     parser.add_argument("--save_dir", type=str, required=True)
+    parser.add_argument("--vqvae_params", type=str, default="", required=False)
+    parser.add_argument("--resume_from", type=str, default="", required=False)
 
     parser.add_argument("--n_embeds", type=int, default=128, required=False)
     # "All having 256 hidden units."
@@ -25,13 +26,10 @@ def get_args(to_upperse=True):
 
     parser.add_argument("--seed", type=int, default=888, required=False)
     parser.add_argument("--n_cpus", type=int, default=0, required=False)
-    # "Evaluate the performance after 250,000 steps with batch-size 128."
     parser.add_argument("--n_epochs", type=int, default=2000, required=False)
     parser.add_argument("--batch_size", type=int, default=128, required=False)
-    # "With learning rate 2e-4."
     parser.add_argument("--lr", type=float, default=0.0002, required=False)
     parser.add_argument("--val_ratio", type=float, default=0.2, required=False)
-    parser.add_argument("--resume_from", type=str, required=False)
 
     args = parser.parse_args()
 
@@ -74,25 +72,28 @@ class Trainer(object):
         model.train()
         return val_loss
 
-    def save_model_params(self, model, save_path):
-        Path(save_path).parent.mkdir(parents=True, exist_ok=True)
-        torch.save(model.state_dict(), str(save_path))
+    @staticmethod
+    def get_init_epoch(ckpt_path):
+        return int(re.search(pattern=r"epoch=(\d+)-", string=ckpt_path).group(1)) + 1
 
-    def train(self, init_epoch, n_epochs, save_dir, model, optim):
+    def train(self, init_epoch, n_epochs, save_dir, model, optim, vqvae_params="", resume_from=""):
+        model = model.to(self.device)
+
+        if vqvae_params:
+            model.load_model_params(vqvae_params, strict=False)
+
+        if resume_from:
+            model.load_model_params(resume_from, strict=True)
+            init_epoch = self.get_init_epoch(resume_from)
+        else:
+            init_epoch = 1
+        
         test_ori_image, _ = next(iter(self.test_dl))
         test_ori_image = test_ori_image.to(self.device).detach()
         test_ori_grid = image_to_grid(
             test_ori_image, n_cols=int(self.train_dl.batch_size ** 0.5),
         )
         save_image(test_ori_grid, save_path=Path(save_dir)/f"test_ori_image.jpg")
-
-        recon_image1 = model(test_ori_image.detach())
-        recon_grid1 = image_to_grid(
-            recon_image1, n_cols=int(self.train_dl.batch_size ** 0.5),
-        )
-        save_image(
-            recon_grid1, save_path=Path(save_dir)/f"recon_image.jpg",
-        )
 
         best_val_loss = math.inf
         for epoch in range(init_epoch, init_epoch + n_epochs):
@@ -105,12 +106,12 @@ class Trainer(object):
             val_loss = self.validate(model)
             if val_loss < best_val_loss:
                 best_val_loss = val_loss
-                filename = f"epoch={epoch}-val_loss={val_loss:.5f}.pth"
+                filename = f"epoch={epoch}-val_loss={val_loss:.7f}.pth"
                 self.save_model_params(model, save_path=Path(save_dir)/filename)
 
             log = f"""[ {epoch}/{n_epochs} ]"""
-            log += f"[ Train loss: {train_loss:.5f} ]"
-            log += f"[ Val loss: {val_loss:.5f} | Best: {best_val_loss:.5f} ]"
+            log += f"[ Train loss: {train_loss:.7f} ]"
+            log += f"[ Val loss: {val_loss:.7f} | Best: {best_val_loss:.7f} ]"
             print(log)
 
             with torch.no_grad():
@@ -122,10 +123,6 @@ class Trainer(object):
                     recon_grid,
                     save_path=Path(save_dir)/f"epoch={epoch}-recon_image.jpg",
                 )
-
-
-def ckpt_path_to_init_epoch(ckpt_path):
-    return int(re.search(pattern=r"epoch=(\d+)-", string=ckpt_path).group(1)) + 1
 
 
 def main():
@@ -156,17 +153,8 @@ def main():
         hidden_dim=args.HIDDEN_DIM,
         n_pixelcnn_res_blocks=args.N_PIXELCNN_RES_BLOCKS,
     ).to(DEVICE)
-    state_dict = torch.load(args.VQVAE_PARAMS, map_location=DEVICE)
-    model.load_state_dict(state_dict, strict=False)
-    if args.RESUME_FROM:
-        state_dict = torch.load(args.RESUME_FROM, map_location=DEVICE)
-        model.load_state_dict(state_dict)
     optim = AdamW(model.parameters(), lr=args.LR)
 
-    if args.RESUME_FROM:
-        init_epoch = ckpt_path_to_init_epoch(args.RESUME_FROM)
-    else:
-        init_epoch = 1
     trainer = Trainer(
         train_dl=train_dl,
         val_dl=val_dl,
@@ -174,11 +162,12 @@ def main():
         device=DEVICE,
     )
     trainer.train(
-        init_epoch=init_epoch,
         n_epochs=args.N_EPOCHS,
         save_dir=args.SAVE_DIR,
         model=model,
         optim=optim,
+        vqvae_params=args.VQVAE_PARAMS,
+        resume_from=args.RESUME_FROM,
     )
 
 if __name__ == "__main__":
