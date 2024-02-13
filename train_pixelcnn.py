@@ -25,21 +25,20 @@ def get_args(to_upperse=True):
     parser.add_argument("--save_dir", type=str, required=True)
     parser.add_argument("--vqvae_params", type=str, default="", required=False)
     parser.add_argument("--resume_from", type=str, default="", required=False)
+    parser.add_argument("--n_cpus", type=int, required=True)
+
+    # Training
+    parser.add_argument("--seed", type=int, default=888, required=False)
+    parser.add_argument("--n_epochs", type=int, default=2000, required=False)
+    parser.add_argument("--batch_size", type=int, default=128, required=False)
+    parser.add_argument("--lr", type=float, default=0.0002, required=False)
+    parser.add_argument("--val_ratio", type=float, default=0.2, required=False)
 
     # Architecture
     parser.add_argument("--n_embeds", type=int, default=128, required=False)
-    # "All having 256 hidden units."
     parser.add_argument("--hidden_dim", type=int, default=256, required=False)
     parser.add_argument("--n_pixelcnn_res_blocks", type=int, required=False)
     parser.add_argument("--n_pixelcnn_conv_blocks", type=int, required=False)
-
-    parser.add_argument("--seed", type=int, default=888, required=False)
-    parser.add_argument("--n_cpus", type=int, default=0, required=False)
-    parser.add_argument("--n_epochs", type=int, default=2000, required=False)
-    parser.add_argument("--batch_size", type=int, default=128, required=False)
-    # "With learning rate 2e-4."
-    parser.add_argument("--lr", type=float, default=0.0002, required=False)
-    parser.add_argument("--val_ratio", type=float, default=0.2, required=False)
 
     args = parser.parse_args()
 

@@ -75,4 +75,3 @@ def load_model_params(model, model_params, device, strict):
     state_dict = torch.load(model_params, map_location=device)
     model.load_state_dict(state_dict, strict=strict)
     print(f"Loaded model params from '{str(model_params)}'.")
-    # return model

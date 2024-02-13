@@ -13,6 +13,7 @@ torch.set_printoptions(linewidth=70)
 
 
 class Encoder(nn.Module):
+    # "All having 256 hidden units."
     def __init__(self, channels, hidden_dim):
         super().__init__()
 
