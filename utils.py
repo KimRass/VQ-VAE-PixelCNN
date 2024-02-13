@@ -7,6 +7,8 @@ from pathlib import Path
 import os
 import numpy as np
 import random
+from collections import OrderedDict
+import re
 
 
 def get_device():
@@ -71,7 +73,16 @@ def save_model_params(model, save_path):
     print(f"Saved model params as '{str(save_path)}'.")
 
 
+def modify_state_dict(state_dict, pattern=r"^module.|^_orig_mod."):
+    new_state_dict = OrderedDict()
+    for old_key, value in state_dict.items():
+        new_key = re.sub(pattern=pattern, repl="", string=old_key)
+        new_state_dict[new_key] = value
+    return new_state_dict
+
+
 def load_model_params(model, model_params, device, strict):
     state_dict = torch.load(model_params, map_location=device)
+    state_dict = modify_state_dict(state_dict)
     model.load_state_dict(state_dict, strict=strict)
     print(f"Loaded model params from '{str(model_params)}'.")

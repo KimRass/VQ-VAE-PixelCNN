@@ -102,6 +102,7 @@ class Trainer(object):
 
     def train(self, n_epochs, model, optim, save_dir, resume_from=""):
         model = model.to(self.device)
+        model = torch.compile(model)
 
         if resume_from:
             model.load_model_params(resume_from, device=self.device, strict=True)
@@ -165,7 +166,6 @@ def main():
         n_pixelcnn_res_blocks=args.N_PIXELCNN_RES_BLOCKS,
         n_pixelcnn_conv_blocks=args.N_PIXELCNN_CONV_BLOCKS,
     )
-    model = torch.compile(model)
     # "We use the ADAM optimiser."
     # "With learning rate 2e-4."
     optim = AdamW(model.parameters(), lr=args.LR)

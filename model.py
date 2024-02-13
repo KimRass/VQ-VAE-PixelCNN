@@ -235,7 +235,6 @@ class VQVAE(nn.Module):
         loss = F.cross_entropy(
             rearrange(pred_q, pattern="b c h w -> (b h w) c"), q.view(-1,), reduction="mean",
         )
-        # print(loss)
         return loss
 
     @staticmethod

@@ -103,6 +103,7 @@ class Trainer(object):
 
     def train(self, n_epochs, save_dir, model, optim, vqvae_params, resume_from, q_size):
         model = model.to(self.device)
+        model = torch.compile(model)
 
         if vqvae_params:
             load_model_params(
@@ -175,7 +176,6 @@ def main():
         n_pixelcnn_res_blocks=args.N_PIXELCNN_RES_BLOCKS,
         n_pixelcnn_conv_blocks=args.N_PIXELCNN_CONV_BLOCKS,
     )
-    model = torch.compile(model)
     optim = AdamW(model.parameters(), lr=args.LR)
 
     trainer = Trainer(
