@@ -20,25 +20,24 @@ from model import VQVAE
 def get_args(to_upperse=True):
     parser = argparse.ArgumentParser()
 
+    # Training
     parser.add_argument("--dataset", type=str, required=True)
     parser.add_argument("--data_dir", type=str, required=True)
     parser.add_argument("--save_dir", type=str, required=True)
-    parser.add_argument("--vqvae_params", type=str, default="", required=False)
-    parser.add_argument("--resume_from", type=str, default="", required=False)
+    parser.add_argument("--vqvae_params", type=str, required=True)
+    parser.add_argument("--n_epochs", type=int, required=True)
+    parser.add_argument("--batch_size", type=int, required=True)
     parser.add_argument("--n_cpus", type=int, required=True)
-
-    # Training
+    parser.add_argument("--lr", type=float, required=True)
     parser.add_argument("--seed", type=int, default=888, required=False)
-    parser.add_argument("--n_epochs", type=int, default=2000, required=False)
-    parser.add_argument("--batch_size", type=int, default=128, required=False)
-    parser.add_argument("--lr", type=float, default=0.0002, required=False)
     parser.add_argument("--val_ratio", type=float, default=0.2, required=False)
+    parser.add_argument("--resume_from", type=str, default="", required=False)
 
     # Architecture
-    parser.add_argument("--n_embeds", type=int, default=128, required=False)
-    parser.add_argument("--hidden_dim", type=int, default=256, required=False)
-    parser.add_argument("--n_pixelcnn_res_blocks", type=int, required=False)
-    parser.add_argument("--n_pixelcnn_conv_blocks", type=int, required=False)
+    parser.add_argument("--n_embeds", type=int, required=True)
+    parser.add_argument("--hidden_dim", type=int, required=True)
+    parser.add_argument("--n_pixelcnn_res_blocks", type=int, required=True)
+    parser.add_argument("--n_pixelcnn_conv_blocks", type=int, required=True)
 
     args = parser.parse_args()
 
@@ -63,7 +62,6 @@ class Trainer(object):
         with torch.no_grad():
             q = model.get_prior_q(ori_image)
         loss = model.get_pixelcnn_loss(q.detach())
-        # loss = model.get_pixelcnn_loss(ori_image)
 
         optim.zero_grad()
         loss.backward()
@@ -84,6 +82,20 @@ class Trainer(object):
 
         model.train()
         return val_loss
+
+    @torch.no_grad()
+    def sample(self, model, save_dir, epoch, q_size):
+        model.eval()
+
+        sampled_image = model.sample(
+            batch_size=self.train_dl.batch_size, q_size=q_size, device=self.device, temp=1,
+        )
+        sampled_grid = image_to_grid(sampled_image, n_cols=int(self.train_dl.batch_size ** 0.5))
+        save_image(
+            sampled_grid, save_path=Path(save_dir)/f"epoch={epoch}-sampled_image.jpg",
+        )
+
+        model.train()
 
     @staticmethod
     def get_init_epoch(ckpt_path):
@@ -106,12 +118,10 @@ class Trainer(object):
             init_epoch = 1
 
         best_val_loss = math.inf
-        # fake_q = torch.randint(0, 128, size=(self.train_dl.batch_size, 7, 7), device=self.device)
         for epoch in range(init_epoch, init_epoch + n_epochs):
             cum_train_loss = 0
             for ori_image, _ in tqdm(self.train_dl, leave=False):
                 loss = self.train_single_step(ori_image, model=model, optim=optim)
-                # loss = self.train_single_step(fake_q, model=model, optim=optim)
                 cum_train_loss += loss.item()
             train_loss = cum_train_loss / len(self.train_dl)
 
@@ -119,27 +129,25 @@ class Trainer(object):
             if val_loss < best_val_loss:
                 best_val_loss = val_loss
                 filename = f"epoch={epoch}-val_loss={val_loss:.3f}.pth"
-                save_model_params(model=model, save_path=Path(save_dir)/filename)
+                cur_save_path = Path(save_dir)/filename
+                save_model_params(model=model, save_path=cur_save_path)
+
+                if prev_save_path.exists():
+                    prev_save_path.unlink()
+                prev_save_path = Path(cur_save_path)
 
             log = f"""[ {epoch}/{n_epochs} ]"""
             log += f"[ Train loss: {train_loss:.3f} ]"
             log += f"[ Val loss: {val_loss:.3f} | Best: {best_val_loss:.3f} ]"
             print(log)
 
-            sampled_image = model.sample(
-                batch_size=self.train_dl.batch_size, q_size=q_size, device=self.device, temp=1,
-            )
-            sampled_grid = image_to_grid(sampled_image, n_cols=int(self.train_dl.batch_size ** 0.5))
-            save_image(
-                sampled_grid, save_path=Path(save_dir)/f"epoch={epoch}-sampled_image.jpg",
-            )
+            self.sample(model=model, save_dir=save_dir, epoch=epoch, q_size=q_size)
 
 
 def main():
     args = get_args()
     set_seed(args.SEED)
-    # DEVICE = get_device()
-    DEVICE = torch.device("cpu")
+    DEVICE = get_device()
 
     print(f"[ DEVICE: {DEVICE} ][ N_CPUS: {args.N_CPUS} ]")
 

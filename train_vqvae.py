@@ -110,6 +110,7 @@ class Trainer(object):
             init_epoch = 1
 
         best_val_loss = math.inf
+        prev_save_path = Path(".pth")
         for epoch in range(init_epoch, init_epoch + n_epochs):
             cum_train_loss = 0
             for ori_image, _ in tqdm(self.train_dl, leave=False):
@@ -121,7 +122,12 @@ class Trainer(object):
             if val_loss < best_val_loss:
                 best_val_loss = val_loss
                 filename = f"epoch={epoch}-val_loss={val_loss:.3f}.pth"
-                save_model_params(model=model, save_path=Path(save_dir)/filename)
+                cur_save_path = Path(save_dir)/filename
+                save_model_params(model=model, save_path=cur_save_path)
+
+                if prev_save_path.exists():
+                    prev_save_path.unlink()
+                prev_save_path = Path(cur_save_path)
 
             log = f"""[ {epoch}/{n_epochs} ]"""
             log += f"[ Train loss: {train_loss:.3f} ]"
@@ -159,6 +165,7 @@ def main():
         n_pixelcnn_res_blocks=args.N_PIXELCNN_RES_BLOCKS,
         n_pixelcnn_conv_blocks=args.N_PIXELCNN_CONV_BLOCKS,
     )
+    model = torch.compile(model)
     # "We use the ADAM optimiser."
     # "With learning rate 2e-4."
     optim = AdamW(model.parameters(), lr=args.LR)
