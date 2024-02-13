@@ -13,3 +13,4 @@ python3 ../train_vqvae.py\
     --n_embeds=128\
     --hidden_dim=256\
     --n_pixelcnn_res_blocks=2\
+    --n_pixelcnn_conv_blocks=2\

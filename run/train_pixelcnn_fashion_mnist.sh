@@ -9,7 +9,7 @@ python3 ../train_pixelcnn.py\
     --data_dir="/Users/jongbeomkim/Documents/datasets/"\
     --save_dir="/Users/jongbeomkim/Documents/vqvae/pixelcnn_fashion_mnist"\
     --n_cpus=7\
-    --n_epochs=30\
+    --n_epochs=20\
     --batch_size=128\
     --n_embeds=128\
     --hidden_dim=256\
