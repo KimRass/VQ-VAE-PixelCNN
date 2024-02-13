@@ -10,8 +10,8 @@ def get_args(to_upperse=True):
     parser = argparse.ArgumentParser()
 
     parser.add_argument("--dataset", type=str, required=True)
-    parser.add_argument("--model_params", type=str, required=True)
     parser.add_argument("--save_dir", type=str, required=True)
+    parser.add_argument("--model_params", type=str, required=True)
     parser.add_argument("--batch_size", type=int, required=True)
     parser.add_argument("--n_samples", type=int, required=True)
     parser.add_argument("--temp", type=float, default=1, required=False)
