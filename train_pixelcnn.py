@@ -139,7 +139,7 @@ class Trainer(object):
 def main():
     args = get_args()
     set_seed(args.SEED)
-    DEVICE = get_device()
+    # DEVICE = get_device()
     DEVICE = torch.device("cpu")
 
     print(f"[ DEVICE: {DEVICE} ][ N_CPUS: {args.N_CPUS} ]")
@@ -167,6 +167,7 @@ def main():
         n_pixelcnn_res_blocks=args.N_PIXELCNN_RES_BLOCKS,
         n_pixelcnn_conv_blocks=args.N_PIXELCNN_CONV_BLOCKS,
     )
+    model = torch.compile(model)
     optim = AdamW(model.parameters(), lr=args.LR)
 
     trainer = Trainer(
