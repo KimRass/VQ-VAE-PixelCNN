@@ -23,7 +23,7 @@
     ```
 ## 2) On CIFAR-10
 - [vqvae-cifar10.pth](https://drive.google.com/file/d/1kyTe8U0frTDCPDdYxyuHiyFYzFEbmDVy/view?usp=sharing)
-- Trained VQ-VAE for 80 epochs. (Validation loss: 0.164)
+<!-- - Trained VQ-VAE for 80 epochs. (Validation loss: 0.164)
     ```bash
     dataset="cifar10"
     batch_size=128
@@ -31,6 +31,16 @@
     n_embeds=32
     hidden_dim=128
     n_pixelcnn_res_blocks=3
+    n_pixelcnn_conv_blocks=2
+    ``` -->
+- Trained VQ-VAE for 40 epochs. (Validation loss: 0.139)
+    ```bash
+    dataset="cifar10"
+    batch_size=128
+    lr=0.0003
+    n_embeds=128
+    hidden_dim=64
+    n_pixelcnn_res_blocks=2
     n_pixelcnn_conv_blocks=2
     ```
 - Then trained PixelCNN for 60 epochs. (Validataion loss: 2.469)
