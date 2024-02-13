@@ -118,6 +118,7 @@ class Trainer(object):
             init_epoch = 1
 
         best_val_loss = math.inf
+        prev_save_path = Path(".pth")
         for epoch in range(init_epoch, init_epoch + n_epochs):
             cum_train_loss = 0
             for ori_image, _ in tqdm(self.train_dl, leave=False):
@@ -149,7 +150,7 @@ def main():
     set_seed(args.SEED)
     DEVICE = get_device()
 
-    print(f"[ DEVICE: {DEVICE} ][ N_CPUS: {args.N_CPUS} ]")
+    print(f"[ DEVICE: {DEVICE} ][DATASET: {args.DATASET} ][ N_CPUS: {args.N_CPUS} ]")
 
     if args.DATASET == "fashion_mnist":
         from data.fashion_mnist import get_dls
