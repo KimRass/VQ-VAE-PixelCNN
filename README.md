@@ -22,17 +22,7 @@
     n_pixelcnn_conv_blocks=2
     ```
 ## 2) On CIFAR-10
-- [vqvae-cifar10.pth](https://drive.google.com/file/d/1kyTe8U0frTDCPDdYxyuHiyFYzFEbmDVy/view?usp=sharing)
-<!-- - Trained VQ-VAE for 80 epochs. (Validation loss: 0.164)
-    ```bash
-    dataset="cifar10"
-    batch_size=128
-    lr=0.0002
-    n_embeds=32
-    hidden_dim=128
-    n_pixelcnn_res_blocks=3
-    n_pixelcnn_conv_blocks=2
-    ``` -->
+- [vqvae-cifar10.pth](https://drive.google.com/file/d/1JOu-Vdh6byvVJrg7ZRu66bDKtDPoUeGK/view?usp=sharing)
 - Trained VQ-VAE for 40 epochs. (Validation loss: 0.139)
     ```bash
     dataset="cifar10"
@@ -43,17 +33,16 @@
     n_pixelcnn_res_blocks=2
     n_pixelcnn_conv_blocks=2
     ```
-- Then trained PixelCNN for 60 epochs. (Validataion loss: 2.469)
+- Then trained PixelCNN for 96 epochs. (Validataion loss: 2.226)
     ```bash
     dataset="cifar10"
     batch_size=128
-    lr=0.0002
-    n_embeds=32
-    hidden_dim=128
-    n_pixelcnn_res_blocks=3
+    lr=0.0003
+    n_embeds=128
+    hidden_dim=64
+    n_pixelcnn_res_blocks=2
     n_pixelcnn_conv_blocks=2
     ```
-- `n_embeds=32`는 너무 작은 값인 것 같습니다.
 
 # 2. Samples
 - <img src="https://github.com/KimRass/KimRass/assets/67457712/4d1a8d21-c589-43b1-b37f-dde2d5e4b7de" width="500">

@@ -56,7 +56,7 @@ class VectorQuantizer(nn.Module):
         x = rearrange(x, pattern="b c h w -> (b h w) c")
         squared_dist = ((x.unsqueeze(1) - self.embed_space.weight.unsqueeze(0)) ** 2).sum(dim=2)
         # "The discrete latent variables $z$ are then calculated by a nearest neighbour look-up
-        # using the shared embedding space $e$.
+        # using the shared embedding space $e$."
         argmin = torch.argmin(squared_dist, dim=1) # (b * h * w,)
         q = argmin.view(b, h, w) # (b, h, w)
         return q
@@ -238,27 +238,13 @@ class VQVAE(nn.Module):
         return loss
 
     @staticmethod
-    def deterministically_sample(x):
-        return torch.argmax(x, dim=1)
-
-    @staticmethod
-    def stochastically_sample(x, temp=1):
+    def sample_from_distr(x, temp=1):
         prob = F.softmax(x / temp, dim=1)
         return torch.multinomial(prob, num_samples=1, replacement=True)[:, 0]
 
     def q_to_image(self, q):
         x = self.vect_quant.embed_space(q)
         return self.decode(x.permute(0, 3, 1, 2))
-
-    def reconstruct(self, ori_image, temp=0):
-        with torch.no_grad():
-            q = self.get_prior_q(ori_image)
-        pred_q = self.pixelcnn(q.detach())
-        if temp == 0:
-            recon_q = self.deterministically_sample(pred_q)
-        elif temp > 0:
-            recon_q = self.stochastically_sample(pred_q)
-        return self.q_to_image(recon_q)
 
     @torch.no_grad()
     def sample_post_q(self, batch_size, q_size, device, temp=1):
@@ -268,7 +254,7 @@ class VQVAE(nn.Module):
         for row in range(q_size):
             for col in range(q_size):
                 pred_q = self.pixelcnn(sampled_q.detach())
-                recon_q = self.stochastically_sample(pred_q[..., row, col], temp=temp)
+                recon_q = self.sample_from_distr(pred_q[..., row, col], temp=temp)
                 sampled_q[:, row, col] = recon_q
         return sampled_q
 
