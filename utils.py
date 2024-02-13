@@ -63,3 +63,16 @@ def plt_to_pil(fig):
     img = mplfig_to_npimage(fig)
     image = to_pil(img)
     return image
+
+
+def save_model_params(model, save_path):
+    Path(save_path).parent.mkdir(parents=True, exist_ok=True)
+    torch.save(model.state_dict(), str(save_path))
+    print(f"Saved model params as '{str(save_path)}'.")
+
+
+def load_model_params(model, model_params, device, strict):
+    state_dict = torch.load(model_params, map_location=device)
+    model.load_state_dict(state_dict, strict=strict)
+    print(f"Loaded model params from '{str(model_params)}'.")
+    # return model

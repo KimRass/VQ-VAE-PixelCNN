@@ -17,11 +17,6 @@ def get_args(to_upperse=True):
     parser.add_argument("--data_dir", type=str, required=True)
     parser.add_argument("--save_dir", type=str, required=True)
 
-    parser.add_argument("--n_embeds", type=int, default=128, required=False)
-    # "All having 256 hidden units."
-    parser.add_argument("--hidden_dim", type=int, default=256, required=False)
-    parser.add_argument("--commit_weight", type=float, default=0.25, required=False)
-
     parser.add_argument("--seed", type=int, default=888, required=False)
     parser.add_argument("--n_cpus", type=int, default=0, required=False)
     # "Evaluate the performance after 250,000 steps with batch-size 128."
@@ -31,6 +26,12 @@ def get_args(to_upperse=True):
     parser.add_argument("--lr", type=float, default=0.0002, required=False)
     parser.add_argument("--val_ratio", type=float, default=0.2, required=False)
     parser.add_argument("--resume_from", type=str, required=False)
+
+    parser.add_argument("--n_embeds", type=int, default=128, required=False)
+    # "All having 256 hidden units."
+    parser.add_argument("--hidden_dim", type=int, default=256, required=False)
+    parser.add_argument("--n_pixelcnn_res_blocks", type=int, default=2, required=False)
+    parser.add_argument("--commit_weight", type=float, default=0.25, required=False)
 
     args = parser.parse_args()
 
@@ -43,79 +44,84 @@ def get_args(to_upperse=True):
     return args
 
 
-def train_single_step(ori_image, model, optim, commit_weight, device):
-    ori_image = ori_image.to(device)
-    loss = model.get_vqvae_loss(ori_image, commit_weight=commit_weight)
+class Trainer(object):
+    def __init__(self, train_dl, val_dl, commit_weight, device):
+        self.train_dl = train_dl
+        self.val_dl = val_dl
+        self.commit_weight = commit_weight
+        self.device = device
 
-    optim.zero_grad()
-    loss.backward()
-    optim.step()
-    return loss
+    def train_single_step(self, ori_image, model, optim):
+        ori_image = ori_image.to(self.device)
+        loss = model.get_vqvae_loss(ori_image, commit_weight=self.commit_weight)
 
+        optim.zero_grad()
+        loss.backward()
+        optim.step()
+        return loss
 
-@torch.no_grad()
-def validate(val_dl, model, commit_weight, device):
-    model.eval()
+    @torch.no_grad()
+    def validate(self, model):
+        model.eval()
 
-    cum_val_loss = 0
-    for ori_image, _ in val_dl:
-        ori_image = ori_image.to(device)
-        loss = model.get_vqvae_loss(ori_image, commit_weight=commit_weight)
-        cum_val_loss += loss.item()
-    val_loss = cum_val_loss / len(val_dl)
+        cum_val_loss = 0
+        for ori_image, _ in self.val_dl:
+            ori_image = ori_image.to(self.device)
+            loss = model.get_vqvae_loss(ori_image, commit_weight=self.commit_weight)
+            cum_val_loss += loss.item()
+        val_loss = cum_val_loss / len(self.val_dl)
 
-    model.train()
-    return val_loss
+        model.train()
+        return val_loss
 
+    @staticmethod
+    def get_init_epoch(ckpt_path):
+        return int(re.search(pattern=r"epoch=(\d+)-", string=ckpt_path).group(1)) + 1
 
-def save_state_dict(state_dict, save_path):
-    Path(save_path).parent.mkdir(parents=True, exist_ok=True)
-    torch.save(state_dict, str(save_path))
+    def train(self, n_epochs, model, optim, save_dir, resume_from=""):
+        model = model.to(self.device)
 
+        if resume_from:
+            model.load_model_params(resume_from, device=self.device, strict=True)
+            init_epoch = self.get_init_epoch(resume_from)
+        else:
+            init_epoch = 1
+        
+        # test_ori_image, _ = next(iter(self.test_dl))
+        # test_ori_image = test_ori_image.to(self.device).detach()
+        # test_ori_grid = image_to_grid(
+        #     test_ori_image, n_cols=int(self.train_dl.batch_size ** 0.5),
+        # )
+        # save_image(test_ori_grid, save_path=Path(save_dir)/f"test_ori_image.jpg")
 
-def train(
-    init_epoch, n_epochs, train_dl, val_dl, test_dl, model, optim, save_dir, commit_weight, device,
-):
-    test_ori_image, _ = next(iter(test_dl))
-    test_ori_image = test_ori_image.to(device)
-    test_ori_grid = image_to_grid(test_ori_image, n_cols=int(train_dl.batch_size ** 0.5))
-    save_image(test_ori_grid, save_path=Path(save_dir)/f"test_ori_image.jpg")
+        best_val_loss = math.inf
+        for epoch in range(init_epoch, init_epoch + n_epochs):
+            cum_train_loss = 0
+            for ori_image, _ in tqdm(self.train_dl, leave=False):
+                loss = self.train_single_step(ori_image, model=model, optim=optim)
+                cum_train_loss += loss.item()
+            train_loss = cum_train_loss / len(self.train_dl)
 
-    best_val_loss = math.inf
-    for epoch in range(init_epoch, init_epoch + n_epochs):
-        cum_train_loss = 0
-        for ori_image, _ in tqdm(train_dl, leave=False):
-            loss = train_single_step(
-                ori_image=ori_image,
-                model=model,
-                optim=optim,
-                commit_weight=commit_weight,
-                device=device,
-            )
-            cum_train_loss += loss.item()
-        train_loss = cum_train_loss / len(train_dl)
+            val_loss = self.validate(model)
+            if val_loss < best_val_loss:
+                best_val_loss = val_loss
+                filename = f"epoch={epoch}-val_loss={val_loss:.3f}.pth"
+                model.save_model_params(Path(save_dir)/filename)
 
-        val_loss = validate(
-            val_dl=val_dl, model=model, commit_weight=commit_weight, device=device,
-        )
-        if val_loss < best_val_loss:
-            best_val_loss = val_loss
-            filename = f"epoch={epoch}-val_loss={val_loss:.3f}.pth"
-            save_state_dict(model.state_dict(), save_path=Path(save_dir)/filename)
+            log = f"""[ {epoch}/{n_epochs} ]"""
+            log += f"[ Train loss: {train_loss:.3f} ]"
+            log += f"[ Val loss: {val_loss:.3f} | Best: {best_val_loss:.3f} ]"
+            print(log)
 
-        log = f"""[ {epoch}/{n_epochs} ]"""
-        log += f"[ Train loss: {train_loss:.3f} ]"
-        log += f"[ Val loss: {val_loss:.3f} | Best: {best_val_loss:.3f} ]"
-        print(log)
-
-        with torch.no_grad():
-            recon_image = model(test_ori_image.detach())
-            recon_grid = image_to_grid(recon_image, n_cols=int(train_dl.batch_size ** 0.5))
-            save_image(recon_grid, save_path=Path(save_dir)/f"epoch={epoch}-recon_image.jpg")
-
-
-def ckpt_path_to_init_epoch(ckpt_path):
-    return int(re.search(pattern=r"epoch=(\d+)-", string=ckpt_path).group(1)) + 1
+            # with torch.no_grad():
+            #     recon_image = model(test_ori_image.detach())
+            #     recon_grid = image_to_grid(
+            #         recon_image, n_cols=int(self.train_dl.batch_size ** 0.5),
+            #     )
+            #     save_image(
+            #         recon_grid,
+            #         save_path=Path(save_dir)/f"epoch={epoch}-recon_image.jpg",
+            #     )
 
 
 def main():
@@ -123,15 +129,15 @@ def main():
     set_seed(args.SEED)
     DEVICE = get_device()
 
-    print(f"[ DEVICE: {DEVICE} ][ N_CPUS: {args.N_CPUS} ]")
+    print(f"[ DEVICE: {DEVICE} ][DATASET: {args.DATASET} ][ N_CPUS: {args.N_CPUS} ]")
 
     if args.DATASET == "fashion_mnist":
-        from fashion_mnist import get_dls
+        from data.fashion_mnist import get_dls
         CHANNELS = 1
     elif args.DATASET == "cifar10":
-        from cifar10 import get_dls
+        from data.cifar10 import get_dls
         CHANNELS = 3
-    train_dl, val_dl, test_dl = get_dls(
+    train_dl, val_dl, _ = get_dls(
         data_dir=args.DATA_DIR,
         batch_size=args.BATCH_SIZE,
         n_cpus=args.N_CPUS,
@@ -140,29 +146,26 @@ def main():
     )
 
     model = VQVAE(
-        channels=CHANNELS, n_embeds=args.N_EMBEDS, hidden_dim=args.HIDDEN_DIM,
-    ).to(DEVICE)
-    if args.RESUME_FROM:
-        state_dict = torch.load(args.RESUME_FROM, map_location=DEVICE)
-        model.load_state_dict(state_dict)
+        channels=CHANNELS,
+        n_embeds=args.N_EMBEDS,
+        hidden_dim=args.HIDDEN_DIM,
+        n_pixelcnn_res_blocks=args.N_PIXELCNN_RES_BLOCKS,
+    )
     # "We use the ADAM optimiser."
     optim = AdamW(model.parameters(), lr=args.LR)
 
-    if args.RESUME_FROM:
-        init_epoch = ckpt_path_to_init_epoch(args.RESUME_FROM)
-    else:
-        init_epoch = 1
-    train(
-        init_epoch=init_epoch,
-        n_epochs=args.N_EPOCHS,
+    trainer = Trainer(
         train_dl=train_dl,
         val_dl=val_dl,
-        test_dl=test_dl,
+        commit_weight=args.COMMIT_WEIGHT,
+        device=DEVICE,
+    )
+    trainer.train(
+        n_epochs=args.N_EPOCHS,
         model=model,
         optim=optim,
         save_dir=args.SAVE_DIR,
-        commit_weight=args.COMMIT_WEIGHT,
-        device=DEVICE,
+        resume_from=args.RESUME_FROM,
     )
 
 if __name__ == "__main__":
