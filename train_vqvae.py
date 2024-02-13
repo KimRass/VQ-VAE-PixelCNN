@@ -102,13 +102,12 @@ class Trainer(object):
 
     def train(self, n_epochs, model, optim, save_dir, resume_from=""):
         model = model.to(self.device)
-        model = torch.compile(model)
-
         if resume_from:
             model.load_model_params(resume_from, device=self.device, strict=True)
             init_epoch = self.get_init_epoch(resume_from)
         else:
             init_epoch = 1
+        model = torch.compile(model)
 
         best_val_loss = math.inf
         prev_save_path = Path(".pth")

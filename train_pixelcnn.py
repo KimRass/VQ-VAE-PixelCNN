@@ -103,13 +103,10 @@ class Trainer(object):
 
     def train(self, n_epochs, save_dir, model, optim, vqvae_params, resume_from, q_size):
         model = model.to(self.device)
-        model = torch.compile(model)
-
         if vqvae_params:
             load_model_params(
-                model=model, model_params=vqvae_params, device=self.device, strict=False,
+                model=model, model_params=vqvae_params, device=self.device, strict=True,
             )
-
         if resume_from:
             load_model_params(
                 model=model, model_params=resume_from, device=self.device, strict=True,
@@ -117,6 +114,7 @@ class Trainer(object):
             init_epoch = self.get_init_epoch(resume_from)
         else:
             init_epoch = 1
+        model = torch.compile(model)
 
         best_val_loss = math.inf
         prev_save_path = Path(".pth")
