@@ -39,7 +39,7 @@ def get_args(to_upperse=True):
         new_args_dict = dict()
         for k, v in args_dict.items():
             new_args_dict[k.upper()] = v
-        args = argparse.Namespace(**new_args_dict)    
+        args = argparse.Namespace(**new_args_dict)
     return args
 
 

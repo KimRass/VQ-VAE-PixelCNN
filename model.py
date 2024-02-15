@@ -200,7 +200,7 @@ class VQVAE(nn.Module):
     def forward(self, ori_image):
         # "The model takes an input $x$, that is passed through an encoder
         # producing output $z_{e}(x)$.
-        z_e = self.encode(ori_image) # "$z_{e}(x)$"
+        z_e = self.encode(ori_image)
         z_q = self.vect_quant(z_e)
         x = self.decode(z_q)
         return x
@@ -218,14 +218,16 @@ class VQVAE(nn.Module):
         # "$\beta \Vert z_{e}(x) - \text{sg}[e] \Vert^{2}_{2}$"
         # This term trains the encoder.
         commit_loss = commit_weight * F.mse_loss(z_e, z_q.detach(), reduction="mean")
-        z_q = z_e + (z_q - z_e).detach() # Straight-through estimator.(?)
+        # "We approximate the gradient similar to the straight-through estimator and just
+        # copy gradients from decoder input $z_{q}(x)$ to encoder output $z_{e}(x)$."
+        z_q = z_e + (z_q - z_e).detach()
 
         recon_image = self.decode(z_q)
-        # This term trains the decoder.
+        # This term trains the decoder (and the encoder).
         recon_loss = F.mse_loss(recon_image, ori_image, reduction="mean")
         return recon_loss + vq_loss + commit_loss
 
-    def get_prior_q(self, ori_image):
+    def get_post_q(self, ori_image):
         z_e = self.encode(ori_image)
         q = self.vect_quant.vector_quantize(z_e) # "$q(z \vert x)$"
         return q
