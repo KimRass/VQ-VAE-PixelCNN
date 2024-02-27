@@ -51,4 +51,6 @@ def get_dls(data_dir, batch_size, n_cpus, val_ratio, seed):
     train_ds = Subset(train_val_ds, train_idx)
     val_ds = Subset(train_val_ds, val_idx)
     test_ds = CIFAR10(root=data_dir, train=False, download=True, transform=transformer)
-    return dses_to_dls(train_ds, val_ds, test_ds, batch_size=batch_size, n_cpus=n_cpus)
+    return dses_to_dls(
+        train_ds, val_ds, test_ds, batch_size=batch_size, n_cpus=n_cpus,
+    )
