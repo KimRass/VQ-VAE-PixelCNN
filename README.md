@@ -45,8 +45,13 @@
     ```
 
 # 2. Samples
-- <img src="https://github.com/KimRass/KimRass/assets/67457712/4d1a8d21-c589-43b1-b37f-dde2d5e4b7de" width="500">
-- <img src="https://github.com/KimRass/KimRass/assets/67457712/9c0570d7-9d25-457b-923b-83a3f0481389" width="600">
+| Fashion MNIST |
+|:-:|
+| <img src="https://github.com/KimRass/KimRass/assets/67457712/4d1a8d21-c589-43b1-b37f-dde2d5e4b7de" width="490"> |
+
+| CIFAR-10 |
+|:-:|
+| <img src="https://github.com/KimRass/KimRass/assets/67457712/9c0570d7-9d25-457b-923b-83a3f0481389" width="560"> |
 
 # 3. Implementation Details
 ## 1) `detach()`
